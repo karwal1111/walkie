@@ -1,1 +1,59 @@
-
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Walkie</title>
+<style>
+:root{--bg:#f6f6f3;--fg:#1c1c1a;--card:#fff;--ac:#e8590c;--mu:#777;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root{--bg:#161615;--fg:#eee;--card:#242422;--mu:#999}}
+*{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--fg);font:16px system-ui,sans-serif}
+main{max-width:480px;margin:auto;padding:16px;display:flex;flex-direction:column;gap:14px}
+h1{margin:0;font-size:22px}input,button{font:inherit;padding:10px 12px;border-radius:10px;border:1px solid var(--mu);background:var(--card);color:var(--fg)}
+.row{display:flex;gap:8px}.row input{flex:1;min-width:0}
+.chips{display:flex;flex-wrap:wrap;gap:8px}.chip{border-radius:20px;padding:6px 12px}.chip.on{background:var(--ac);color:#fff;border-color:var(--ac)}
+#ptt{width:200px;height:200px;border-radius:50%;margin:8px auto;background:var(--ac);color:#fff;border:0;font-size:20px;font-weight:700;touch-action:none;user-select:none;-webkit-user-select:none}
+#ptt.rec{transform:scale(.94);box-shadow:0 0 0 14px #e8590c44}#ptt:disabled{opacity:.4}
+small,#st{color:var(--mu)}#log{display:flex;flex-direction:column;gap:6px;max-height:34vh;overflow:auto}
+.m{background:var(--card);padding:8px 12px;border-radius:10px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+</style></head><body><main>
+<h1>📻 Walkie</h1>
+<div class="row"><input id="me" placeholder="Your name" maxlength="20"></div>
+<div class="row"><input id="g" placeholder="Group code (e.g. team1)" maxlength="24"><button id="j">Join</button></div>
+<small>Tap groups to select targets. Several selected = broadcast to all of them.</small>
+<div class="chips" id="chips"></div>
+<button id="ptt" disabled>HOLD<br>TO TALK</button>
+<label><input type="checkbox" id="auto" checked> Auto-play incoming</label>
+<div id="st">Connecting…</div>
+<div id="log"></div>
+</main>
+<script>
+const $=id=>document.getElementById(id),G={};let ws,rec=null,ch=[],stream=null;
+const mime=['audio/webm;codecs=opus','audio/mp4','audio/webm'].find(m=>window.MediaRecorder&&MediaRecorder.isTypeSupported(m))||'';
+const st=t=>$('st').textContent=t,tx=o=>ws&&ws.readyState==1&&ws.send(JSON.stringify(o));
+try{$('me').value=localStorage.getItem('n')||''}catch(e){}
+$('me').onchange=()=>{try{localStorage.setItem('n',$('me').value)}catch(e){}};
+function conn(){ws=new WebSocket((location.protocol=='https:'?'wss://':'ws://')+location.host+'/ws');
+ws.onopen=()=>{st('Connected');for(const k in G)tx({t:'join',g:k})};
+ws.onclose=()=>{st('Reconnecting…');setTimeout(conn,2000)};
+ws.onmessage=e=>{const m=JSON.parse(e.data);
+if(m.t=='peers'&&G[m.g]){G[m.g].n=m.n;draw()}
+else if(m.t=='ack')st('Delivered to '+m.n+' listener(s)');
+else if(m.t=='v')play(m.d,m.m,m.f+' · '+m.gs.map(g=>'#'+g).join(', '))}}
+function draw(){$('chips').innerHTML='';for(const k in G){const b=document.createElement('button');b.className='chip'+(G[k].sel?' on':'');
+b.textContent='#'+k+' · '+G[k].n;b.onclick=()=>{G[k].sel=!G[k].sel;draw()};$('chips').append(b)}
+$('ptt').disabled=!Object.values(G).some(g=>g.sel)}
+function add(t,url){const d=document.createElement('div');d.className='m';d.innerHTML='<span></span>';d.firstChild.textContent=t;
+if(url){const b=document.createElement('button');b.textContent='▶';b.onclick=()=>new Audio(url).play();d.append(b)}$('log').prepend(d)}
+function play(b64,mt,t){const a=atob(b64),u=new Uint8Array(a.length);for(let i=0;i<a.length;i++)u[i]=a.charCodeAt(i);
+const url=URL.createObjectURL(new Blob([u],{type:mt}));add(t,url);if($('auto').checked)new Audio(url).play().catch(()=>add('Tap ▶ to play (autoplay blocked)'))}
+$('j').onclick=()=>{const k=$('g').value.toLowerCase().replace(/[^a-z0-9-]/g,'');$('g').value='';
+if(!k||G[k])return;G[k]={sel:true,n:1};tx({t:'join',g:k});draw()};
+async function start(){if(rec)return;try{stream=stream||await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}})}catch(e){return st('Mic blocked (needs HTTPS)')}
+ch=[];rec=new MediaRecorder(stream,{mimeType:mime,audioBitsPerSecond:16000});rec.ondataavailable=e=>ch.push(e.data);rec.onstop=send;rec.start();$('ptt').classList.add('rec')}
+function stop(){if(rec&&rec.state=='recording')rec.stop();$('ptt').classList.remove('rec')}
+async function send(){const blob=new Blob(ch,{type:mime});rec=null;if(blob.size<400)return;
+const d=await new Promise(r=>{const f=new FileReader();f.onload=()=>r(f.result.split(',')[1]);f.readAsDataURL(blob)});
+const gs=Object.keys(G).filter(k=>G[k].sel);tx({t:'v',gs,f:$('me').value||'Anon',m:mime.split(';')[0]=='audio/webm'&&mime.includes('opus')?mime:mime,d});
+add('You → '+gs.map(k=>'#'+k).join(', '),URL.createObjectURL(blob))}
+const p=$('ptt');p.onpointerdown=e=>{e.preventDefault();start()};['pointerup','pointerleave','pointercancel'].forEach(v=>p['on'+v]=stop);p.oncontextmenu=e=>e.preventDefault();
+conn();
+</script></body></html>
