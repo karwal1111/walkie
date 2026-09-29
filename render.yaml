@@ -1,0 +1,6 @@
+services:                # list of things Render should run
+  - type: web            # a public web service (gets an HTTPS URL)
+    name: walkie         # the service name, which also becomes the URL: walkie.onrender.com
+    runtime: python      # use Python
+    buildCommand: pip install -r requirements.txt   # runs once per deploy to install packages
+    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT   # starts the server
